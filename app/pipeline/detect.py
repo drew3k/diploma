@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import List, Set, Dict, Optional
+from typing import List, Set, Dict
 
 import regex as re
 
@@ -13,22 +13,21 @@ from presidio_analyzer.predefined_recognizers import (
     IpRecognizer,
 )
 
-# Наши утилиты
+# Наши утилиты/настройки
 from .utils import Span, DEFAULT_REGEX, filter_labels
 from app.settings import settings
 
-# --- HF NER (опционально). Если модулей нет, просто отключаем шаг ---
+# --- HF NER (опционально). Если модулей нет, шаг отключится безопасно. ---
 try:
-    from .hf_ner import HFNerRecognizer  # новый модуль из предыдущего шага
+    from .hf_ner import HFNerRecognizer
 
     _HFNER_AVAILABLE = True
 except Exception:
     _HFNER_AVAILABLE = False
 
-# --- Natasha + pymorphy2 (опционально). Если нет — шаг PERSON-RU будет пропущен. ---
+# --- Natasha (опционально) для PERSON (RU) как бэкап ---
 try:
     from natasha import NamesExtractor, Doc
-    import pymorphy2  # noqa
 
     _NATASHA_AVAILABLE = True
 except Exception:
@@ -38,18 +37,14 @@ except Exception:
 # -------------------------
 # Константы/паттерны для русских ФИО (как бэкап/усиление к HF-NER)
 # -------------------------
-# Инициал(ы): А.А. / А. А.
 INITIALS_RX = re.compile(r"(?:[А-ЯЁA-Z]\.){1,3}")
-# Фамилия: заглавная + строчные, допускаем дефис
 SURNAME_RX = re.compile(r"[А-ЯЁ][а-яё]+(?:-[А-ЯЁ][а-яё]+)?")
-# «Грубая» форма ФИО: Фамилия Имя Отчество/инициалы (слегка либеральная)
 FIO_RU_REGEX_REFINED = re.compile(
     rf"(?:{SURNAME_RX.pattern}\s+[А-ЯЁ][а-яё]+(?:\s+[А-ЯЁ][а-яё]+|"
     rf"\s+{INITIALS_RX.pattern})?"
     rf"|{INITIALS_RX.pattern}\s+{SURNAME_RX.pattern})"
 )
 
-# Список «анти-заголовков», чтобы не ловить разделы и меню
 NEG_HEADERS = {
     "содержание",
     "оглавление",
@@ -72,37 +67,73 @@ NEG_HEADERS = {
     "статьи",
 }
 
-# Кэши для пресидио и HF-NER
-_analyzers: Dict[str, AnalyzerEngine] = {}
-_HF_RECOGNIZERS: Dict[str, HFNerRecognizer] = {}
 
-
-# -------------------------
-# Вспомогательные функции
-# -------------------------
 def _is_header_like(text: str) -> bool:
     t = text.strip().lower()
     return t in NEG_HEADERS or (len(t) < 48 and t.isupper())
 
 
-def _extract_person_ru_natasha(text: str) -> List[Span]:
-    """Бэкап: извлечение PERSON для RU через Natasha NamesExtractor."""
-    if not _NATASHA_AVAILABLE:
-        return []
-    try:
-        extractor = NamesExtractor()
-        doc = Doc(text)
-        doc.segment(segmenter=None)  # NamesExtractor не требует сегментатора
-        spans: List[Span] = []
-        for m in extractor(text):
-            s, e = int(m.start), int(m.stop)
-            frag = text[s:e]
-            if _is_header_like(frag):
-                continue
-            spans.append(Span(frag, s, e, "PERSON"))
-        return spans
-    except Exception:
-        return []
+# -------------------------
+# Расширение адресных спанов (до обучения и после)
+# -------------------------
+_ADDR_LEFT_KEYS = (
+    r"(?:г|город|р-н|район|пос|посёлок|поселок|дер|дп|с|село|пгт|ст|станица|мкр|микрорайон|"
+    r"ул|улица|просп|пр-т|проспект|наб|набережная|пер|переулок|ш|шоссе|"
+    r"пл|площадь|бул|бульвар|тракт|км|километр|владение|вл|строение|стр|дом|д|корп|к|лит|оф|офис|кв|квартира)"
+)
+_ADDR_LEFT_PATTERN = re.compile(
+    rf"(?:^|[\s,])(?:{_ADDR_LEFT_KEYS})\.?(?:\s|$)", re.IGNORECASE
+)
+_ADDR_RIGHT_BOUNDARY = re.compile(r"[.;!?](?:\s+[\p{{Lu}}A-ZА-ЯЁ]|$)|\n")
+
+
+def _expand_address_spans(text: str, spans: List[Span]) -> List[Span]:
+    """Расширяем ADDRESS/LOCATION до целой адресной фразы:
+    добавляем префиксы 'г./ул./наб./д./кв.' слева и тянем вправо до
+    конца предложения/строки. Также нормализуем LOCATION -> ADDRESS."""
+    out: List[Span] = []
+    for s in spans:
+        if s.label not in ("ADDRESS", "LOCATION"):
+            out.append(s)
+            continue
+
+        # влево: захват типового префикса
+        start = s.start
+        left_slice_start = max(0, start - 32)
+        left_slice = text[left_slice_start:start]
+        m_left = list(_ADDR_LEFT_PATTERN.finditer(left_slice))
+        if m_left:
+            last = m_left[-1]
+            start = left_slice_start + last.start()
+            while start < s.start and text[start] in " ,\u00a0":
+                start += 1
+
+        # вправо: до границы предложения/строки
+        end = s.end
+        right_slice = text[end : end + 256]
+        m_right = _ADDR_RIGHT_BOUNDARY.search(right_slice)
+        if m_right:
+            end = end + m_right.start()
+        else:
+            end = min(len(text), end + 256)
+
+        # подчистка хвостовых пробелов/знаков
+        while end > start and text[end - 1] in " ,\u00a0":
+            end -= 1
+
+        # применяем
+        s.start, s.end, s.text = start, end, text[start:end]
+        if s.label == "LOCATION":
+            s.label = "ADDRESS"
+        out.append(s)
+    return out
+
+
+# -------------------------
+# Presidio: сборка движка NLP и регистрация распознавателей
+# -------------------------
+_analyzers: Dict[str, AnalyzerEngine] = {}
+_HF_RECOGNIZERS: Dict[str, HFNerRecognizer] = {}
 
 
 def build_analyzer(langs: list[str]) -> AnalyzerEngine:
@@ -131,6 +162,7 @@ def build_analyzer(langs: list[str]) -> AnalyzerEngine:
         supported_languages=[c["lang_code"] for c in lang_configs],
     )
 
+    # предопределённые распознаватели
     analyzer.registry.add_recognizer(EmailRecognizer())
     analyzer.registry.add_recognizer(PhoneRecognizer())
     analyzer.registry.add_recognizer(CreditCardRecognizer())
@@ -142,24 +174,35 @@ def build_analyzer(langs: list[str]) -> AnalyzerEngine:
 # -------------------------
 # Основная функция детекции
 # -------------------------
+def _extract_person_ru_natasha(text: str) -> List[Span]:
+    if not _NATASHA_AVAILABLE:
+        return []
+    try:
+        extractor = NamesExtractor()
+        doc = Doc(text)
+        # NamesExtractor не требует сегментации предложений
+        spans: List[Span] = []
+        for m in extractor(text):
+            s0, e0 = int(m.start), int(m.stop)
+            frag = text[s0:e0]
+            if _is_header_like(frag):
+                continue
+            spans.append(Span(frag, s0, e0, "PERSON"))
+        return spans
+    except Exception:
+        return []
+
+
 def detect_spans(
     text: str, languages: list[str], limit_labels: Set[str] | None
 ) -> List[Span]:
-    """
-    Сводный детектор:
-      1) Presidio (email/phone/cc/ip/…)
-      2) Наши регэкспы (DEFAULT_REGEX)
-      3) HF-NER (трансформер, с LoRA-адаптерами если есть)
-      4) Наташа (PERSON, RU) как бэкап/усиление
-      5) Слияние и дедупликация (приоритет длинных и критичных сущностей)
-    """
     labels = filter_labels(limit_labels)
     spans: List[Span] = []
 
     if not text:
         return spans
 
-    # нормализуем языки
+    # языки
     langs = [l for l in (languages or []) if l in ("ru", "en")]
     if not langs:
         langs = ["ru"]
@@ -172,58 +215,58 @@ def detect_spans(
 
     pres_results: List[RecognizerResult] = analyzer.analyze(
         text=text,
-        language=langs[0],  # берем первый как основной
+        language=langs[0],
     )
     for e in pres_results:
         if e.entity_type in labels:
             spans.append(Span(text[e.start : e.end], e.start, e.end, e.entity_type))
 
-    # 2) Регэкспы (наши дополнительные паттерны/варианты форматирования)
+    # 2) Регэкспы (доп. форматы/типы, напр. PASSPORT_ID)
     for lbl, rx in DEFAULT_REGEX.items():
         if lbl in labels:
             for m in rx.finditer(text):
                 spans.append(Span(m.group(0), m.start(), m.end(), lbl))
 
-    # 3) HF-NER (PERSON/ADDRESS/ORG и т.п.) — если включено и доступно
+    # 3) HF-NER (если включено)
     if settings.hf_ner_enabled and _HFNER_AVAILABLE:
         lang_for_ner = langs[0]
-        recognizer = _HF_RECOGNIZERS.get(lang_for_ner)
-        if recognizer is None:
-            recognizer = HFNerRecognizer(lang=lang_for_ner)
-            _HF_RECOGNIZERS[lang_for_ner] = recognizer
-
+        rec = _HF_RECOGNIZERS.get(lang_for_ner)
+        if rec is None:
+            rec = HFNerRecognizer(lang=lang_for_ner)
+            _HF_RECOGNIZERS[lang_for_ner] = rec
         try:
-            spans.extend(recognizer.predict(text, limit_labels=set(labels)))
+            spans.extend(rec.predict(text, limit_labels=set(labels)))
         except Exception:
-            # при любых проблемах с HF-NER не валим весь пайплайн
-            pass
+            pass  # не роняем пайплайн
 
-    # 4) PERSON (RU) Natasha+pymorphy2 (бэкап/усиление)
+    # 4) PERSON (RU) Natasha как бэкап
     if "PERSON" in labels and ("ru" in langs):
         spans.extend(_extract_person_ru_natasha(text))
-        # Плюс типовые шаблоны "Фамилия И.О." / "И.О. Фамилия"
         patt1 = re.compile(rf"({SURNAME_RX.pattern})\s*{INITIALS_RX.pattern}")
         patt2 = re.compile(rf"{INITIALS_RX.pattern}\s*({SURNAME_RX.pattern})")
         for pat in (patt1, patt2):
             for m in pat.finditer(text):
                 spans.append(Span(m.group(0), m.start(), m.end(), "PERSON"))
-        # «Грубая» ловля ФИО (последний шанс)
         for m in FIO_RU_REGEX_REFINED.finditer(text):
             frag = m.group(0)
             if not _is_header_like(frag):
                 spans.append(Span(frag, m.start(), m.end(), "PERSON"))
 
-    # 5) Слияние/приоритизация/дедупликация
-    # Критичные типы всегда оставляем (правила имеют первенство):
-    # EMAIL/PHONE/CREDIT_CARD/IP — даем им высокий приоритет.
+    # 5) Расширяем адресные спаны
+    spans = _expand_address_spans(text, spans)
+
+    # 6) Слияние/приоритизация/дедупликация
     priority = {
         "EMAIL_ADDRESS": 5,
         "PHONE_NUMBER": 5,
         "CREDIT_CARD": 5,
         "IP_ADDRESS": 5,
+        "PASSPORT_ID": 5,
         "PERSON": 3,
         "ADDRESS": 2,
+        "ORGANIZATION": 1,
         "ORG": 1,
+        "LOCATION": 2,
     }
     spans.sort(key=lambda s: (s.start, -(s.end - s.start), -priority.get(s.label, 0)))
 

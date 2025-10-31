@@ -282,6 +282,8 @@ async def web_submit(
         set(types.split(",")) if types else None,
     )
 
+    log_candidates(text_for_detection, spans, source="web")
+
     if suffix == ".pdf":
         processed = _redact_pdf_in_memory(content, spans, policy)
         media = "application/pdf"

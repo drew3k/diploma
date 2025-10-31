@@ -8,9 +8,9 @@ CTRL0 = "\u200b\u200c\u200d\ufeff\u00ad"  # ZWSP/ZWNJ/ZWJ/BOM/soft hyphen
 SOFT_SPACES = rf"\s{NBSP}"
 SOFT_SEP = rf"[\s{NBSP}\-]"  # пробел/nbsp/дефис
 
-# --- базовые регексы на входном тексте (включая NBSP/дефисы) ---
+# ---------- базовые регексы на входном тексте ----------
 DEFAULT_REGEX = {
-    # e-mail: whole local-part (letters/digits ._%+-) + @ + domain
+    # E-mail: local-part + @ + domain
     "EMAIL_ADDRESS": re.compile(
         r"(?<!\w)[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}(?!\w)"
     ),
@@ -20,12 +20,23 @@ DEFAULT_REGEX = {
     ),
     # Cards: 16 digits в виде 4-4-4-4; пробел/дефис/NBSP между группами
     "CREDIT_CARD": re.compile(rf"(?<!\d)(?:\d{{4}}(?:{SOFT_SEP})?){{3}}\d{{4}}(?!\d)"),
+    # Паспорт РФ: "12 34 567890" и вариации (дефис/nbsp, слова "серия"/"номер"/"№")
+    # Группы: 2 цифры + 2 цифры + 6 цифр; допускаем мягкие разделители и необязательные префиксы.
+    "PASSPORT_ID": re.compile(
+        rf"(?:(?:сери[яи]|№|номер){SOFT_SEP}*)?"
+        rf"(?<!\d)(\d{{2}}{SOFT_SEP}?\d{{2}}){SOFT_SEP}?(\d{{6}})(?!\d)",
+        re.IGNORECASE,
+    ),
 }
 
+# ---------- поддерживаемые метки ----------
 SUPPORTED_LABELS = {
+    # Неструктурные (даёт NER/правила)
     "PERSON",
-    "LOCATION",
+    "ADDRESS",  # добавили адрес как целевую метку (выдаёт NER)
+    "LOCATION",  # синоним/наследие для совместимости (маппится в ADDRESS выше по пайплайну)
     "ORGANIZATION",
+    # Структурные (regex/Presidio)
     "EMAIL_ADDRESS",
     "PHONE_NUMBER",
     "CREDIT_CARD",
@@ -33,6 +44,8 @@ SUPPORTED_LABELS = {
     "IBAN_CODE",
     "US_SSN",
     "NRP",
+    # Документы
+    "PASSPORT_ID",  # добавили паспорт РФ
 }
 
 
@@ -58,6 +71,10 @@ CYR_LETTER = re.compile(r"\p{IsCyrillic}", re.UNICODE)
 
 
 def _mask_digits_preserve(text: str, keep_digits: int = 4) -> str:
+    """
+    Маскируем все цифры, кроме первых keep_digits встреченных.
+    Примечание: логика совпадает с телефоном/картой в проекте.
+    """
     seen = 0
     out = []
     for ch in text:
@@ -74,6 +91,14 @@ def mask_phone(text: str, keep_digits: int = 4) -> str:
 
 
 def mask_card(text: str, keep_digits: int = 4) -> str:
+    return _mask_digits_preserve(text, keep_digits=keep_digits)
+
+
+def mask_passport(text: str, keep_digits: int = 2) -> str:
+    """
+    Паспорт РФ: оставим первые 2 цифры видимыми, остальное замаскируем.
+    При желании можно сменить политику (например, показывать только последние 2).
+    """
     return _mask_digits_preserve(text, keep_digits=keep_digits)
 
 
@@ -139,6 +164,8 @@ def smart_mask(label: str, text: str) -> str:
         return mask_phone(text)
     if label == "CREDIT_CARD":
         return mask_card(text)
+    if label == "PASSPORT_ID":
+        return mask_passport(text)
     if label == "PERSON":
         return mask_person(text)
     if label == "EMAIL_ADDRESS":
