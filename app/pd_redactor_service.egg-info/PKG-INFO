@@ -1,0 +1,23 @@
+Metadata-Version: 2.4
+Name: pd-redactor-service
+Version: 0.1.0
+Summary: Web API для автоматического скрытия персональных данных в PDF/DOCX
+Author-email: ВКР <example@example.com>
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+Requires-Dist: fastapi==0.115.4
+Requires-Dist: uvicorn[standard]==0.31.1
+Requires-Dist: python-multipart==0.0.9
+Requires-Dist: pydantic-settings==2.6.1
+Requires-Dist: pydantic==2.9.2
+Requires-Dist: presidio-analyzer==2.2.353
+Requires-Dist: presidio-anonymizer==2.2.353
+Requires-Dist: spacy==3.7.5
+Requires-Dist: ru-core-news-md@ https://github.com/explosion/spacy-models/releases/download/ru_core_news_md-3.7.0/ru_core_news_md-3.7.0-py3-none-any.whl
+Requires-Dist: en-core-web-md@ https://github.com/explosion/spacy-models/releases/download/en_core_web_md-3.7.1/en_core_web_md-3.7.1-py3-none-any.whl
+Requires-Dist: PyMuPDF==1.24.10
+Requires-Dist: pdfminer.six==20240706
+Requires-Dist: python-docx==1.1.2
+Requires-Dist: lxml==5.3.0
+Requires-Dist: Pillow==10.4.0
+Requires-Dist: regex==2024.9.11

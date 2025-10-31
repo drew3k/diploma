@@ -1,0 +1,168 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>Обработка документов — PD Redactor</title>
+<style>
+    :root {
+        --bg: #f6f7fb;
+        --red: #e02424;
+        --red-hover: #d11f1f;
+        --text: #0f172a;
+        --muted: #6b7280;
+    }
+
+    * {
+        box-sizing: border-box
+    }
+
+    body {
+        margin: 0;
+        background: var(--bg);
+        font-family: ui-sans-serif, system-ui, Segoe UI, Roboto, Arial;
+        color: var(--text)
+    }
+
+    .wrap {
+        max-width: 1080px;
+        margin: 0 auto;
+        padding: 48px 20px
+    }
+
+    .hero {
+        text-align: center;
+        padding: 48px 12px
+    }
+
+    .hero h1 {
+        font-size: 48px;
+        letter-spacing: .2px;
+        margin: 0 0 12px
+    }
+
+    .hero p {
+        font-size: 18px;
+        color: var(--muted);
+        margin: 0
+    }
+
+    .panel {
+        background: #fff;
+        border-radius: 20px;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, .06);
+        padding: 36px;
+        margin-top: 28px;
+        text-align: center
+    }
+
+    .bigbtn {
+        display: inline-flex;
+        align-items: center;
+        gap: 12px;
+        background: var(--red);
+        color: #fff;
+        padding: 18px 28px;
+        border-radius: 14px;
+        border: none;
+        font-size: 20px;
+        cursor: pointer;
+        box-shadow: 0 8px 20px rgba(224, 36, 36, .25)
+    }
+
+    .bigbtn:hover {
+        background: var(--red-hover)
+    }
+
+    .hint {
+        margin-top: 12px;
+        color: #94a3b8
+    }
+
+    .row {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        justify-content: center;
+        margin-top: 18px;
+        flex-wrap: wrap
+    }
+
+    .select {
+        padding: 10px 12px;
+        border: 1px solid #e5e7eb;
+        border-radius: 12px;
+        font-size: 15px
+    }
+
+    input[type="file"] {
+        display: none
+    }
+
+    .filename {
+        margin-top: 14px;
+        font-weight: 600
+    }
+
+    .hidden {
+        display: none
+    }
+</style>
+
+<div class="wrap">
+    <div class="hero">
+        <h1>Скрыть персональные данные</h1>
+        <p>Конвертировать ваши документы в измененный файл, который будет таким же
+            самым как и оригинальный PDF или DOCX.</p>
+    </div>
+
+    <div class="panel">
+        <form id="direct" action="/web/submit" method="post" enctype="multipart/form-data">
+            <input id="file" type="file" name="file" required />
+            <button type="button" class="bigbtn" id="chooseBtn">Выбрать файлы</button>
+
+            <div class="filename hidden" id="fname"></div>
+
+            <div class="row">
+                <select class="select" name="policy">
+                    <option value="mask">mask</option>
+                    <option value="remove">remove</option>
+                </select>
+                <input class="select" name="languages" value="ru,en" />
+            </div>
+
+            <div style="margin-top:22px">
+                <button type="submit" class="bigbtn hidden" id="processBtn">Обработать</button>
+            </div>
+            <div class="hint">или перетащите файлы сюда</div>
+        </form>
+    </div>
+</div>
+
+<script>
+    const fileInput = document.getElementById('file');
+    const chooseBtn = document.getElementById('chooseBtn');
+    const processBtn = document.getElementById('processBtn');
+    const fname = document.getElementById('fname');
+    const form = document.getElementById('direct');
+
+    chooseBtn.addEventListener('click', () => fileInput.click());
+
+    fileInput.addEventListener('change', () => {
+        if (fileInput.files.length > 0) {
+            fname.textContent = fileInput.files[0].name;
+            fname.classList.remove('hidden');
+            processBtn.classList.remove('hidden');
+            chooseBtn.textContent = 'Выбрать другие файлы';
+        }
+    });
+
+    // drag&drop
+    ['dragenter', 'dragover'].forEach(evt => {
+        document.addEventListener(evt, e => { e.preventDefault(); e.stopPropagation(); });
+    });
+    document.addEventListener('drop', e => {
+        e.preventDefault(); e.stopPropagation();
+        if (e.dataTransfer.files.length) {
+            fileInput.files = e.dataTransfer.files;
+            const ev = new Event('change'); fileInput.dispatchEvent(ev);
+        }
+    });
+</script>
