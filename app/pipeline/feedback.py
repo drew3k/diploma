@@ -4,9 +4,8 @@ from pathlib import Path
 import json
 from datetime import datetime
 
-from app.settings import settings  # если settings.py лежит в корне рядом с app/
-
-_FEED_DIR = settings.data_dir / "feedback"
+_APP_ROOT = Path(__file__).resolve().parents[1]
+_FEED_DIR = _APP_ROOT / "data" / "feedback"
 _FEED_DIR.mkdir(parents=True, exist_ok=True)
 _FEED_PATH = _FEED_DIR / "candidates.jsonl"
 

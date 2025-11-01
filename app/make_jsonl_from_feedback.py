@@ -3,8 +3,9 @@ from pathlib import Path
 import json
 from sklearn.model_selection import train_test_split  # pip install scikit-learn
 
-FEED = Path("data/feedback/candidates.jsonl")
-OUT_DIR = Path("data/labels")
+ROOT = Path(__file__).resolve().parents[1]
+FEED = ROOT / "data" / "feedback" / "candidates.jsonl"
+OUT_DIR = ROOT / "data" / "labels"
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 KEEP = {"PERSON", "ADDRESS", "LOCATION"}  # LOCATION будет смэплен в ADDRESS в обучалке
