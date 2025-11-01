@@ -88,7 +88,7 @@ def to_bio_encodings(
 def main(
     train_path: str = "data/labels/train.jsonl",
     dev_path: str = "data/labels/dev.jsonl",
-    base_model: str = settings.hf_ner_model_name,  # например "DeepPavlov/rubert-base-cased"
+    base_model: str = settings.hf_ner_model_name,
     out_dir: str = "data/hf_ner/ru",
     lora_r: int = 16,
     lora_alpha: int = 32,
