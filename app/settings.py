@@ -18,7 +18,7 @@ class Settings(BaseSettings):
         "B-ORG": "ORG",
         "I-ORG": "ORG",  # опционально
     }
-    hf_ner_threshold: float = 0.8
+    hf_ner_threshold: float = 0.7
     hf_ner_max_length: int = 512
     # если положить LoRA-адаптер в data/hf_ner/ru (и en), будем подхватывать автоматически:
     hf_ner_adapters_dir: Path | None = None  # None -> data/hf_ner
