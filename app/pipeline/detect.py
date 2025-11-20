@@ -119,7 +119,7 @@ _HF_RECOGNIZERS: Dict[str, HFNerRecognizer] = {}
 def build_analyzer(langs: list[str]) -> AnalyzerEngine:
     """Собирает Presidio AnalyzerEngine с нужными моделями spaCy."""
     lang_configs = []
-    for l in langs:
+    for l in langs:  # noqa: E741
         if l == "ru":
             ru_model_dir = settings.data_dir / "models" / "ru"
             nlp_name = str(ru_model_dir) if ru_model_dir.exists() else "ru_core_news_md"
@@ -155,7 +155,7 @@ def _extract_person_ru_natasha(text: str) -> List[Span]:
         return []
     try:
         extractor = NamesExtractor()
-        doc = Doc(text)
+        doc = Doc(text)  # noqa: F841
         spans: List[Span] = []
         for m in extractor(text):
             s0, e0 = int(m.start), int(m.stop)
@@ -176,7 +176,7 @@ def detect_spans(
     if not text:
         return spans
 
-    langs = [l for l in (languages or []) if l in ("ru", "en")]
+    langs = [l for l in (languages or []) if l in ("ru", "en")]  # noqa: E741
     if not langs:
         langs = ["ru"]
     key = ",".join(sorted(langs))
