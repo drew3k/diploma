@@ -3,9 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterable, List, Sequence
 
-from app.pipeline.detect import detect_spans
-from app.pipeline.utils import Span, smart_mask
-from app.metrics import classification_metrics, pretty_print
+from pipeline.detect import detect_spans
+from pipeline.utils import Span, smart_mask
+from metrics import classification_metrics, pretty_print
 
 
 # Only use fields that our detector supports
@@ -104,15 +104,11 @@ def train_from_fake(
     true_spans: list[Span] = []
     pred_spans: list[Span] = []
 
-    leaked_total = 0
-    total_true_tokens = 0
-
     # Build and process in batches to avoid huge single-doc processing
     batch: list[LabeledText] = []
     global_offset = 0
 
     def process_batch(items: list[LabeledText], start_offset: int) -> int:
-        nonlocal leaked_total, total_true_tokens
         if not items:
             return 0
         chunk_text = "".join(x.text for x in items)
@@ -134,15 +130,6 @@ def train_from_fake(
         for s in local_pred:
             pred_spans.append(Span(s.text, s.start + start_offset, s.end + start_offset, s.label))
 
-        # leakage over redacted chunk
-        red_chunk = _apply_policy(chunk_text, local_pred, policy)
-        for s in local_true:
-            if s.text:
-                # check presence of original token in redacted chunk
-                if s.text in red_chunk:
-                    leaked_total += 1
-                total_true_tokens += 1
-
         return len(chunk_text)
 
     for row in _iter_rows(df, limit=n_rows):
@@ -159,31 +146,11 @@ def train_from_fake(
 
     # classification metrics
     cls = classification_metrics(true_spans, pred_spans, allowed)
-    micro = cls["micro"]
-
-    # redaction metrics (computed incrementally)
-    tp, fp = micro["tp"], micro["fp"]
-    over_redaction = (fp / (tp + fp)) if (tp + fp) else 0.0
-    leakage = (leaked_total / total_true_tokens) if total_true_tokens else 0.0
-    red = {
-        "pii_leakage": leakage,
-        "leaked": leaked_total,
-        "total_true": total_true_tokens,
-        "over_redaction": over_redaction,
-        "tp": tp,
-        "fp": fp,
-    }
-
-    return {"classification": cls, "redaction": red, "timing_ms": None}
+    return cls
 
 
 if __name__ == "__main__":
-    metrics = train_from_fake(n_rows=1000, policy="mask", languages=["ru", "en"], batch_size=5000)
-    pretty_print(metrics)
-    # Also dump compact JSON if needed
-    try:
-        import json
-
-        print("\n--- JSON ---\n" + json.dumps(metrics, ensure_ascii=False))
-    except Exception:
-        pass
+    cls_metrics = train_from_fake(
+        n_rows=1000, policy="mask", languages=["ru", "en"], batch_size=5000
+    )
+    pretty_print(cls_metrics)

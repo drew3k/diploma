@@ -2,7 +2,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional
-
+import inspect
 import torch
 from transformers import AutoTokenizer, AutoModelForTokenClassification, pipeline
 
@@ -13,8 +13,10 @@ try:
 except Exception:
     _HAS_PEFT = False
 
-from app.settings import settings
+from settings import settings
 from .utils import Span
+
+HF_NER_BIO_LABELS = ["B-PER", "I-PER", "B-ORG", "I-ORG", "B-LOC", "I-LOC"]
 
 
 @dataclass
@@ -46,11 +48,15 @@ class HFNerRecognizer:
         self.device = 0 if torch.cuda.is_available() else -1
 
         self.tokenizer = AutoTokenizer.from_pretrained(self.cfg.model_name)
-        base_model = AutoModelForTokenClassification.from_pretrained(
-            self.cfg.model_name
-        )
 
-        # Прикрутим LoRA-адаптер, если он есть
+        num_labels = len(HF_NER_BIO_LABELS)
+        base_model = AutoModelForTokenClassification.from_pretrained(
+            self.cfg.model_name,
+            num_labels=num_labels,
+        )
+        base_model.config.id2label = {i: lab for i, lab in enumerate(HF_NER_BIO_LABELS)}
+        base_model.config.label2id = {lab: i for i, lab in enumerate(HF_NER_BIO_LABELS)}
+
         if self.cfg.adapters_dir and self.cfg.adapters_dir.exists() and _HAS_PEFT:
             try:
                 base_model = PeftModel.from_pretrained(
@@ -64,23 +70,32 @@ class HFNerRecognizer:
             "token-classification",
             model=base_model,
             tokenizer=self.tokenizer,
-            aggregation_strategy="simple",  # сгруппированные сущности
+            aggregation_strategy="simple",
             device=self.device,
         )
 
-        # Сопоставление меток модели с нашими классами
         self.label_map = self.cfg.label_map or {}
 
     def predict(self, text: str, limit_labels: set[str] | None = None) -> List[Span]:
         if not text:
             return []
-        results = self.pipe(
-            text,
-            truncation=True,
-            max_length=self.cfg.max_length,
-            stride=128,
-            return_all_scores=False,
-        )
+
+        pipe_kwargs = {}
+        try:
+            sig = inspect.signature(self.pipe._sanitize_parameters)
+            params = sig.parameters
+            if "truncation" in params:
+                pipe_kwargs["truncation"] = True
+            if "max_length" in params:
+                pipe_kwargs["max_length"] = self.cfg.max_length
+            if "stride" in params:
+                pipe_kwargs["stride"] = 128
+            if "return_all_scores" in params:
+                pipe_kwargs["return_all_scores"] = False
+        except Exception:
+            pipe_kwargs = {}
+
+        results = self.pipe(text, **pipe_kwargs)
 
         spans: list[Span] = []
         for r in results:
@@ -100,7 +115,6 @@ class HFNerRecognizer:
             frag = text[start:end]
             spans.append(Span(frag, start, end, mapped))
 
-        # упорядочим и уберем пересечения (оставляем более длинные)
         spans.sort(key=lambda s: (s.start, -(s.end - s.start)))
         ded: list[Span] = []
         cur_end = -1

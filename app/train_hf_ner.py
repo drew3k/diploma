@@ -1,5 +1,5 @@
-# train_hf_ner.py  — обучение LoRA-адаптера для NER (PERSON/LOC/ORG)
 from __future__ import annotations
+
 from dataclasses import dataclass
 from pathlib import Path
 import json
@@ -17,7 +17,13 @@ from transformers import (
 )
 from peft import LoraConfig, get_peft_model
 
-from settings import settings  # лежит рядом с main.py
+from settings import settings
+from metrics import classification_metrics
+from pipeline.utils import Span
+from pipeline.hf_ner import HFNerConfig, HFNerRecognizer
+
+
+labels = ["B-PER", "I-PER", "B-ORG", "I-ORG", "B-LOC", "I-LOC"]
 
 
 @dataclass
@@ -26,7 +32,6 @@ class Rec:
     entities: List[Tuple[int, int, str]]  # (start, end, label)
 
 
-# нормализация ярлыков из JSONL
 _LABEL_ALIASES = {
     "PERSON": "PER",
     "PER": "PER",
@@ -85,6 +90,36 @@ def to_bio_encodings(
     return data
 
 
+def _load_gold_spans(path: Path):
+    """Загружаем dev JSONL и приводим метки к PERSON/ADDRESS/ORG для span-метрик."""
+    alias_to_final = {
+        "PER": "PERSON",
+        "LOC": "ADDRESS",
+        "ORG": "ORG",
+    }
+    items: list[tuple[str, List[Span]]] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        obj = json.loads(line)
+        text = obj.get("text", "")
+        spans: List[Span] = []
+        for s, e, lbl in obj.get("entities", []):
+            lbl_norm = _LABEL_ALIASES.get(str(lbl).upper().strip())
+            if not lbl_norm:
+                continue
+            final_lbl = alias_to_final.get(lbl_norm)
+            if not final_lbl:
+                continue
+            s_i, e_i = int(s), int(e)
+            if e_i <= s_i or s_i < 0 or e_i > len(text):
+                continue
+            spans.append(Span(text[s_i:e_i], s_i, e_i, final_lbl))
+        if text and spans:
+            items.append((text, spans))
+    return items
+
+
 def main(
     train_path: str = "data/labels/train.jsonl",
     dev_path: str = "data/labels/dev.jsonl",
@@ -136,7 +171,7 @@ def main(
 
     collator = DataCollatorForTokenClassification(tokenizer)
 
-    # --- Совместимые с разными версиями transformers аргументы ---
+    # безопасная инициализация TrainingArguments с учётом версии transformers
     sig = inspect.signature(TrainingArguments.__init__)
 
     def supports(arg: str) -> bool:
@@ -150,7 +185,6 @@ def main(
         "learning_rate": lr,
         "logging_steps": 50,
     }
-    # опциональные по версии
     if supports("evaluation_strategy"):
         ta_kwargs["evaluation_strategy"] = "epoch"
     if supports("save_strategy"):
@@ -158,7 +192,7 @@ def main(
     if supports("fp16"):
         ta_kwargs["fp16"] = torch.cuda.is_available()
     if supports("report_to"):
-        ta_kwargs["report_to"] = []  # отключить отчёты (wandb и т.п.)
+        ta_kwargs["report_to"] = []
     if supports("save_total_limit"):
         ta_kwargs["save_total_limit"] = 2
 
@@ -173,9 +207,60 @@ def main(
         data_collator=collator,
     )
 
-    trainer.train()
+    train_output = trainer.train()
+    print("\n[train_hf_ner] Training finished.")
+    if train_output.training_loss is not None:
+        print(f"[train_hf_ner] Final training loss: {train_output.training_loss:.4f}")
+    try:
+        eval_res = trainer.evaluate()
+        if "eval_loss" in eval_res:
+            print(f"[train_hf_ner] Eval loss: {eval_res['eval_loss']:.4f}")
+    except Exception:
+        pass
+
     model.save_pretrained(str(out_path))
     print(f"[train_hf_ner] Saved LoRA adapters to {out_path.resolve()}")
+
+    # span-метрики (precision/recall/F1/accuracy) на dev
+    try:
+        gold_items = _load_gold_spans(Path(dev_path))
+        if not gold_items:
+            print("[train_hf_ner] No gold dev data for span metrics, skip.")
+            return
+
+        cfg = HFNerConfig(
+            model_name=base_model,
+            threshold=settings.hf_ner_threshold,
+            label_map=settings.hf_ner_label_map,
+            max_length=max_length,
+            adapters_dir=out_path,
+        )
+        recognizer = HFNerRecognizer(lang="ru", cfg=cfg)
+
+        true_spans: List[Span] = []
+        pred_spans: List[Span] = []
+        allowed = {"PERSON", "ADDRESS", "ORG"}
+
+        for text, spans_gold in gold_items:
+            true_spans.extend(spans_gold)
+            pred_spans.extend(recognizer.predict(text, limit_labels=allowed))
+
+        cls = classification_metrics(true_spans, pred_spans, labels=allowed)
+        micro = cls["micro"]
+        tp, fp, fn = micro["tp"], micro["fp"], micro["fn"]
+        denom = tp + fp + fn
+        accuracy = (tp / denom) if denom else 0.0
+
+        print("\n[train_hf_ner] Dev NER metrics (entity-level):")
+        print(
+            f"  Accuracy:  {accuracy:.4f}\n"
+            f"  Precision: {micro['precision']:.4f}\n"
+            f"  Recall:    {micro['recall']:.4f}\n"
+            f"  F1-score:  {micro['f1']:.4f}"
+        )
+        # MAE/RMSE для NER не особенно информативны, поэтому здесь не считаем их.
+    except Exception as e:
+        print(f"[train_hf_ner] Failed to compute span metrics: {e}")
 
 
 if __name__ == "__main__":

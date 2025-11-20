@@ -12,7 +12,7 @@ def _to_key(s: Span) -> Tuple[int, int, str]:
 def _match_counts(
     true_spans: List[Span], pred_spans: List[Span], labels: Set[str] | None = None
 ):
-    """Exact-match по (start,end,label). Возвращает per-class TP/FP/FN и микро-итоги."""
+    """Exact-match по (start,end,label). Считаем per-class TP/FP/FN и микросуммы."""
     if labels is None:
         labels = set([s.label for s in true_spans] + [s.label for s in pred_spans])
 
@@ -55,7 +55,7 @@ def _prf(tp: int, fp: int, fn: int):
 def classification_metrics(
     true_spans: List[Span], pred_spans: List[Span], labels: Set[str] | None = None
 ):
-    """Возвращает словарь с micro/macro и метриками по классам."""
+    """Считаем precision/recall/F1 и accuracy (micro/macro + per-class)."""
     per_counts, micro_counts = _match_counts(true_spans, pred_spans, labels)
 
     per_scores: Dict[str, Dict[str, float]] = {}
@@ -78,12 +78,16 @@ def classification_metrics(
     micro_p, micro_r, micro_f1 = _prf(
         micro_counts["tp"], micro_counts["fp"], micro_counts["fn"]
     )
+    denom_micro = micro_counts["tp"] + micro_counts["fp"] + micro_counts["fn"]
+    micro_acc = micro_counts["tp"] / denom_micro if denom_micro else 0.0
+
     macro = {k: (v / num_lbls) for k, v in macro_accum.items()}
     return {
         "micro": {
             "precision": micro_p,
             "recall": micro_r,
             "f1": micro_f1,
+            "accuracy": micro_acc,
             **micro_counts,
         },
         "macro": macro,
@@ -91,13 +95,12 @@ def classification_metrics(
     }
 
 
-# -------- Метрики редактирования --------
+# --------- вспомогательные вещи для старых метрик редактирования (пока оставим, но не печатаем) ---------
 
-_WS = r"[\s\u00A0]+"  # пробел/таб/NBSP
+_WS = r"[\s\u00A0]+"
 
 
 def _text_pattern(txt: str) -> re.Pattern:
-    """Паттерн для поиска сырого текста ПД с терпимостью к пробелам."""
     esc = re.escape(txt)
     esc = esc.replace(r"\ ", _WS)
     return re.compile(esc)
@@ -106,11 +109,7 @@ def _text_pattern(txt: str) -> re.Pattern:
 def redaction_metrics(
     true_spans: List[Span], pred_spans: List[Span], redacted_text: str
 ):
-    """
-    Leakage: доля истинных ПД, которые остались видимыми после редактирования (по точному тексту).
-    Over-redaction: FP/(TP+FP) — доля предсказанных сущностей, которых нет в эталоне.
-    """
-    # leakage
+    """Старая метрика утечек/over-redaction; сейчас в pretty_print не используется."""
     leaked = 0
     for s in true_spans:
         if not s.text:
@@ -121,7 +120,6 @@ def redaction_metrics(
     total_true = len([s for s in true_spans if s.text])
     leakage = leaked / total_true if total_true else 0.0
 
-    # over-redaction (по классификации)
     _, micro_counts = _match_counts(true_spans, pred_spans)
     tp, fp = micro_counts["tp"], micro_counts["fp"]
     over_redaction = fp / (tp + fp) if (tp + fp) else 0.0
@@ -137,38 +135,59 @@ def redaction_metrics(
 
 
 def pretty_print(metrics: dict):
-    """Красивая печать метрик в stdout."""
+    """Печать удобочитаемых метрик качества в stdout."""
 
-    def pct(x):
+    def pct(x: float) -> str:
         return f"{x * 100:5.1f}%"
 
-    micro = metrics["classification"]["micro"]
-    macro = metrics["classification"]["macro"]
+    micro = metrics["micro"]
+    macro = metrics["macro"]
+    per_class = metrics["per_class"]
 
-    print("\n=== Метрики классификации (детекция ПД) ===")
+    # Micro accuracy (если вдруг не посчитана)
+    micro_acc = micro.get("accuracy")
+    if micro_acc is None:
+        denom = micro.get("tp", 0) + micro.get("fp", 0) + micro.get("fn", 0)
+        micro_acc = micro.get("tp", 0) / denom if denom else 0.0
+
+    # Macro accuracy: среднее Accuracy по классам
+    total_acc = 0.0
+    n_labels = 0
+    for s in per_class.values():
+        tp, fp, fn = s["tp"], s["fp"], s["fn"]
+        denom = tp + fp + fn
+        acc_i = tp / denom if denom else 0.0
+        total_acc += acc_i
+        n_labels += 1
+    macro_acc = total_acc / n_labels if n_labels else 0.0
+
+    print("\n=== Качество распознавания сущностей (exact match) ===")
     print(
-        f"Micro:  Precision={pct(micro['precision'])}  Recall={pct(micro['recall'])}  F1={pct(micro['f1'])}  "
-        f"(TP={micro['tp']} FP={micro['fp']} FN={micro['fn']})"
+        f"Micro:  Accuracy={pct(micro_acc)}  "
+        f"Precision={pct(micro['precision'])}  "
+        f"Recall={pct(micro['recall'])}  "
+        f"F1-score={pct(micro['f1'])}"
     )
     print(
-        f"Macro:  Precision={pct(macro['p'])}  Recall={pct(macro['r'])}  F1={pct(macro['f1'])}"
+        f"Macro:  Accuracy={pct(macro_acc)}  "
+        f"Precision={pct(macro['p'])}  "
+        f"Recall={pct(macro['r'])}  "
+        f"F1-score={pct(macro['f1'])}"
     )
-    print("Per-class:")
-    for lbl, s in metrics["classification"]["per_class"].items():
-        print(
-            f"  {lbl:14s}  P={pct(s['precision'])}  R={pct(s['recall'])}  F1={pct(s['f1'])}  "
-            f"(TP={s['tp']} FP={s['fp']} FN={s['fn']})"
+
+    print("\nPer-class:")
+    print(
+        "  {:14s}  {:>10s}  {:>10s}  {:>10s}  {:>10s}".format(
+            "Label", "Accuracy", "Precision", "Recall", "F1-score"
         )
-
-    red = metrics["redaction"]
-    print("\n=== Метрики редактирования ===")
-    print(
-        f"PII Leakage: {pct(red['pii_leakage'])}  (leaked={red['leaked']}/{red['total_true']})"
     )
-    print(
-        f"Over-redaction: {pct(red['over_redaction'])}  (TP={red['tp']} FP={red['fp']})"
-    )
-
-    if "timing_ms" in metrics:
-        print("\n=== Производительность ===")
-        print(f"Общее время: {metrics['timing_ms']} ms")
+    for lbl, s in per_class.items():
+        tp, fp, fn = s["tp"], s["fp"], s["fn"]
+        denom = tp + fp + fn
+        acc = tp / denom if denom else 0.0
+        print(
+            f"  {lbl:14s}  {pct(acc):>10s}  "
+            f"{pct(s['precision']):>10s}  "
+            f"{pct(s['recall']):>10s}  "
+            f"{pct(s['f1']):>10s}"
+        )

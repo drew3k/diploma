@@ -13,7 +13,7 @@ from presidio_analyzer.predefined_recognizers import (
 )
 
 from .utils import Span, DEFAULT_REGEX, filter_labels
-from app.settings import settings
+from settings import settings
 
 try:
     from .hf_ner import HFNerRecognizer
@@ -173,7 +173,6 @@ def detect_spans(
 ) -> List[Span]:
     labels = filter_labels(limit_labels)
     spans: List[Span] = []
-
     if not text:
         return spans
 
@@ -181,6 +180,19 @@ def detect_spans(
     if not langs:
         langs = ["ru"]
     key = ",".join(sorted(langs))
+
+    # --- 1) HF NER: основной источник PERSON/ADDRESS/ORG ---
+    if settings.hf_ner_enabled and _HFNER_AVAILABLE:
+        lang_for_ner = langs[0]
+        rec = _HF_RECOGNIZERS.get(lang_for_ner)
+        if rec is None:
+            rec = HFNerRecognizer(lang=lang_for_ner)
+            _HF_RECOGNIZERS[lang_for_ner] = rec
+        try:
+            spans.extend(rec.predict(text, limit_labels=set(labels)))
+        except Exception:
+            # если NER по какой-то причине падает, не роняем весь пайплайн
+            pass
 
     if key not in _analyzers:
         _analyzers[key] = build_analyzer(langs)
@@ -199,17 +211,6 @@ def detect_spans(
             for m in rx.finditer(text):
                 spans.append(Span(m.group(0), m.start(), m.end(), lbl))
 
-    if settings.hf_ner_enabled and _HFNER_AVAILABLE:
-        lang_for_ner = langs[0]
-        rec = _HF_RECOGNIZERS.get(lang_for_ner)
-        if rec is None:
-            rec = HFNerRecognizer(lang=lang_for_ner)
-            _HF_RECOGNIZERS[lang_for_ner] = rec
-        try:
-            spans.extend(rec.predict(text, limit_labels=set(labels)))
-        except Exception:
-            pass
-
     if "PERSON" in labels and ("ru" in langs):
         spans.extend(_extract_person_ru_natasha(text))
         patt1 = re.compile(rf"({SURNAME_RX.pattern})\s*{INITIALS_RX.pattern}")
@@ -224,17 +225,24 @@ def detect_spans(
 
     spans = _expand_address_spans(text, spans)
 
+    # HF‑NER и семантические сущности считаем основными,
+    # регулярки/Presidio – вспомогательными.
     priority = {
+        # NER / семантические
+        "PERSON": 10,
+        "ADDRESS": 9,
+        "LOCATION": 9,
+        "ORGANIZATION": 9,
+        "ORG": 9,
+        # паттерны и rule-based
         "EMAIL_ADDRESS": 5,
         "PHONE_NUMBER": 5,
         "CREDIT_CARD": 5,
         "IP_ADDRESS": 5,
         "PASSPORT_ID": 5,
-        "PERSON": 3,
-        "ADDRESS": 2,
-        "ORGANIZATION": 1,
-        "ORG": 1,
-        "LOCATION": 2,
+        "US_SSN": 5,
+        "IBAN_CODE": 5,
+        "NRP": 5,
     }
     spans.sort(key=lambda s: (s.start, -(s.end - s.start), -priority.get(s.label, 0)))
 
