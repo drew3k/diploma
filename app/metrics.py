@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import Dict, List, Set, Tuple
 import regex as re
 
-from app.pipeline.utils import Span
+from pipeline.utils import Span
 
 
 def _to_key(s: Span) -> Tuple[int, int, str]:
