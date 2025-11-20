@@ -161,7 +161,7 @@ def pretty_print(metrics: dict):
         n_labels += 1
     macro_acc = total_acc / n_labels if n_labels else 0.0
 
-    print("\n=== Качество распознавания сущностей (exact match) ===")
+    print("\n======= Качество распознавания сущностей =======")
     print(
         f"Micro:  Accuracy={pct(micro_acc)}  "
         f"Precision={pct(micro['precision'])}  "
@@ -178,7 +178,7 @@ def pretty_print(metrics: dict):
     print("\nPer-class:")
     print(
         "  {:14s}  {:>10s}  {:>10s}  {:>10s}  {:>10s}".format(
-            "Label", "Accuracy", "Precision", "Recall", "F1-score"
+            "    ", "Accuracy", "Precision", "Recall", "F1-score"
         )
     )
     for lbl, s in per_class.items():
