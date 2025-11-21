@@ -1,5 +1,6 @@
 from __future__ import annotations
 from typing import Dict, List, Set, Tuple
+from collections import Counter
 import regex as re
 
 from pipeline.utils import Span
@@ -12,7 +13,7 @@ def _to_key(s: Span) -> Tuple[int, int, str]:
 def _match_counts(
     true_spans: List[Span], pred_spans: List[Span], labels: Set[str] | None = None
 ):
-    """Exact-match по (start,end,label). Считаем per-class TP/FP/FN и микросуммы."""
+    """Exact match (start, end, label); duplicate preds now counted as FP."""
     if labels is None:
         labels = set([s.label for s in true_spans] + [s.label for s in pred_spans])
 
@@ -20,20 +21,25 @@ def _match_counts(
         lbl: {"tp": 0, "fp": 0, "fn": 0} for lbl in labels
     }
 
-    true_by_lbl: Dict[str, Set[Tuple[int, int, str]]] = {lbl: set() for lbl in labels}
-    pred_by_lbl: Dict[str, Set[Tuple[int, int, str]]] = {lbl: set() for lbl in labels}
+    true_by_lbl: Dict[str, Counter] = {lbl: Counter() for lbl in labels}
+    pred_by_lbl: Dict[str, Counter] = {lbl: Counter() for lbl in labels}
 
     for s in true_spans:
         if s.label in labels:
-            true_by_lbl[s.label].add(_to_key(s))
+            true_by_lbl[s.label][_to_key(s)] += 1
     for s in pred_spans:
         if s.label in labels:
-            pred_by_lbl[s.label].add(_to_key(s))
+            pred_by_lbl[s.label][_to_key(s)] += 1
 
     for lbl in labels:
-        tp = len(true_by_lbl[lbl] & pred_by_lbl[lbl])
-        fp = len(pred_by_lbl[lbl] - true_by_lbl[lbl])
-        fn = len(true_by_lbl[lbl] - pred_by_lbl[lbl])
+        tp = fp = fn = 0
+        for k in set(true_by_lbl[lbl]) | set(pred_by_lbl[lbl]):
+            t = true_by_lbl[lbl].get(k, 0)
+            p = pred_by_lbl[lbl].get(k, 0)
+            m = min(t, p)
+            tp += m
+            fp += p - m
+            fn += t - m
         per[lbl] = {"tp": tp, "fp": fp, "fn": fn}
 
     micro = {"tp": 0, "fp": 0, "fn": 0}
@@ -41,7 +47,53 @@ def _match_counts(
         micro["tp"] += v["tp"]
         micro["fp"] += v["fp"]
         micro["fn"] += v["fn"]
+    return per, micro
 
+
+def _char_counters(spans: List[Span], labels: Set[str]) -> Dict[str, Counter]:
+    """Expand spans to character positions per label."""
+    by_lbl: Dict[str, Counter] = {lbl: Counter() for lbl in labels}
+    for s in spans:
+        if s.label not in labels:
+            continue
+        start = int(s.start)
+        end = int(s.end)
+        for pos in range(start, end):
+            by_lbl[s.label][pos] += 1
+    return by_lbl
+
+
+def _match_counts_char(
+    true_spans: List[Span], pred_spans: List[Span], labels: Set[str] | None = None
+):
+    """Char-level overlap: boundary drift now penalizes precision/recall."""
+    if labels is None:
+        labels = set([s.label for s in true_spans] + [s.label for s in pred_spans])
+
+    per: Dict[str, Dict[str, int]] = {
+        lbl: {"tp": 0, "fp": 0, "fn": 0} for lbl in labels
+    }
+
+    true_chars = _char_counters(true_spans, labels)
+    pred_chars = _char_counters(pred_spans, labels)
+
+    for lbl in labels:
+        tp = fp = fn = 0
+        keys = set(true_chars[lbl]) | set(pred_chars[lbl])
+        for k in keys:
+            t = true_chars[lbl].get(k, 0)
+            p = pred_chars[lbl].get(k, 0)
+            m = min(t, p)
+            tp += m
+            fp += p - m
+            fn += t - m
+        per[lbl] = {"tp": tp, "fp": fp, "fn": fn}
+
+    micro = {"tp": 0, "fp": 0, "fn": 0}
+    for v in per.values():
+        micro["tp"] += v["tp"]
+        micro["fp"] += v["fp"]
+        micro["fn"] += v["fn"]
     return per, micro
 
 
@@ -52,12 +104,8 @@ def _prf(tp: int, fp: int, fn: int):
     return p, r, f1
 
 
-def classification_metrics(
-    true_spans: List[Span], pred_spans: List[Span], labels: Set[str] | None = None
-):
-    """Считаем precision/recall/F1 и accuracy (micro/macro + per-class)."""
-    per_counts, micro_counts = _match_counts(true_spans, pred_spans, labels)
-
+def _scores_from_counts(per_counts: Dict[str, Dict[str, int]]):
+    """Build micro/macro/per-class metrics from TP/FP/FN counts."""
     per_scores: Dict[str, Dict[str, float]] = {}
     macro_accum = {"p": 0.0, "r": 0.0, "f1": 0.0}
     num_lbls = len(per_counts) if per_counts else 1
@@ -75,13 +123,19 @@ def classification_metrics(
         macro_accum["r"] += r
         macro_accum["f1"] += f1
 
+    micro_counts = {"tp": 0, "fp": 0, "fn": 0}
+    for v in per_counts.values():
+        micro_counts["tp"] += v["tp"]
+        micro_counts["fp"] += v["fp"]
+        micro_counts["fn"] += v["fn"]
+
     micro_p, micro_r, micro_f1 = _prf(
         micro_counts["tp"], micro_counts["fp"], micro_counts["fn"]
     )
     denom_micro = micro_counts["tp"] + micro_counts["fp"] + micro_counts["fn"]
     micro_acc = micro_counts["tp"] / denom_micro if denom_micro else 0.0
-
     macro = {k: (v / num_lbls) for k, v in macro_accum.items()}
+
     return {
         "micro": {
             "precision": micro_p,
@@ -95,7 +149,21 @@ def classification_metrics(
     }
 
 
-# --------- вспомогательные вещи для старых метрик редактирования (пока оставим, но не печатаем) ---------
+def classification_metrics(
+    true_spans: List[Span], pred_spans: List[Span], labels: Set[str] | None = None
+):
+    """Precision/recall/F1 + accuracy (micro/macro + per-class) plus char-level."""
+    # Span-level (strict)
+    span_counts, _ = _match_counts(true_spans, pred_spans, labels)
+    span_scores = _scores_from_counts(span_counts)
+
+    # Char-level (penalizes boundary drift)
+    char_counts, _ = _match_counts_char(true_spans, pred_spans, labels)
+    char_scores = _scores_from_counts(char_counts)
+
+    # Preserve old keys for compatibility; add char_level as an extra block
+    return {**span_scores, "char_level": char_scores}
+
 
 _WS = r"[\s\u00A0]+"
 

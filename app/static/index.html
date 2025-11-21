@@ -1,6 +1,6 @@
 <!doctype html>
 <meta charset="utf-8" />
-<title>Обработка документов — PD Redactor</title>
+<title>PD Redactor</title>
 <style>
     :root {
         --bg: #f6f7fb;
@@ -10,38 +10,36 @@
         --muted: #6b7280;
     }
 
-    * {
-        box-sizing: border-box
-    }
+    * { box-sizing: border-box }
 
     body {
         margin: 0;
         background: var(--bg);
         font-family: ui-sans-serif, system-ui, Segoe UI, Roboto, Arial;
-        color: var(--text)
+        color: var(--text);
     }
 
     .wrap {
         max-width: 1080px;
         margin: 0 auto;
-        padding: 48px 20px
+        padding: 48px 20px;
     }
 
     .hero {
         text-align: center;
-        padding: 48px 12px
+        padding: 48px 12px;
     }
 
     .hero h1 {
         font-size: 48px;
         letter-spacing: .2px;
-        margin: 0 0 12px
+        margin: 0 0 12px;
     }
 
     .hero p {
         font-size: 18px;
         color: var(--muted);
-        margin: 0
+        margin: 0;
     }
 
     .panel {
@@ -50,7 +48,7 @@
         box-shadow: 0 10px 30px rgba(0, 0, 0, .06);
         padding: 36px;
         margin-top: 28px;
-        text-align: center
+        text-align: center;
     }
 
     .bigbtn {
@@ -64,16 +62,14 @@
         border: none;
         font-size: 20px;
         cursor: pointer;
-        box-shadow: 0 8px 20px rgba(224, 36, 36, .25)
+        box-shadow: 0 8px 20px rgba(224, 36, 36, .25);
     }
 
-    .bigbtn:hover {
-        background: var(--red-hover)
-    }
+    .bigbtn:hover { background: var(--red-hover) }
 
     .hint {
         margin-top: 12px;
-        color: #94a3b8
+        color: #94a3b8;
     }
 
     .row {
@@ -82,40 +78,35 @@
         gap: 16px;
         justify-content: center;
         margin-top: 18px;
-        flex-wrap: wrap
+        flex-wrap: wrap;
     }
 
     .select {
         padding: 10px 12px;
         border: 1px solid #e5e7eb;
         border-radius: 12px;
-        font-size: 15px
+        font-size: 15px;
     }
 
-    input[type="file"] {
-        display: none
-    }
+    input[type="file"] { display: none }
 
     .filename {
         margin-top: 14px;
-        font-weight: 600
+        font-weight: 600;
     }
 
-    .hidden {
-        display: none
-    }
+    .hidden { display: none }
 </style>
 
 <div class="wrap">
     <div class="hero">
-        <h1>Скрыть персональные данные</h1>
-        <p>Конвертировать ваши документы в измененный файл, который будет таким же
-            самым как и оригинальный PDF или DOCX.</p>
+        <h1>Обезличивание документов</h1>
+        <p>Загрузите один или несколько PDF/DOCX, выберите политику редактирования и получите очищенные файлы.</p>
     </div>
 
     <div class="panel">
         <form id="direct" action="/web/submit" method="post" enctype="multipart/form-data">
-            <input id="file" type="file" name="file" required />
+            <input id="file" type="file" name="files" multiple required />
             <button type="button" class="bigbtn" id="chooseBtn">Выбрать файлы</button>
 
             <div class="filename hidden" id="fname"></div>
@@ -129,9 +120,9 @@
             </div>
 
             <div style="margin-top:22px">
-                <button type="submit" class="bigbtn hidden" id="processBtn">Обработать</button>
+                <button type="submit" class="bigbtn hidden" id="processBtn">Запустить обработку</button>
             </div>
-            <div class="hint">или перетащите файлы сюда</div>
+            <div class="hint">Поддерживается загрузка нескольких PDF или DOCX</div>
         </form>
     </div>
 </div>
@@ -141,18 +132,31 @@
     const chooseBtn = document.getElementById('chooseBtn');
     const processBtn = document.getElementById('processBtn');
     const fname = document.getElementById('fname');
-    const form = document.getElementById('direct');
 
     chooseBtn.addEventListener('click', () => fileInput.click());
 
-    fileInput.addEventListener('change', () => {
+    const renderNames = (files) => {
+        const names = Array.from(files).map(f => f.name);
+        if (!names.length) return '';
+        if (names.length <= 3) return names.join(', ');
+        const [a, b, c, ...rest] = names;
+        return `${a}, ${b}, ${c} (+${rest.length} more)`;
+    };
+
+    const updateState = () => {
         if (fileInput.files.length > 0) {
-            fname.textContent = fileInput.files[0].name;
+            fname.textContent = renderNames(fileInput.files);
             fname.classList.remove('hidden');
             processBtn.classList.remove('hidden');
             chooseBtn.textContent = 'Выбрать другие файлы';
+        } else {
+            fname.classList.add('hidden');
+            processBtn.classList.add('hidden');
+            chooseBtn.textContent = 'Выбрать файлы';
         }
-    });
+    };
+
+    fileInput.addEventListener('change', updateState);
 
     // drag&drop
     ['dragenter', 'dragover'].forEach(evt => {
@@ -162,7 +166,7 @@
         e.preventDefault(); e.stopPropagation();
         if (e.dataTransfer.files.length) {
             fileInput.files = e.dataTransfer.files;
-            const ev = new Event('change'); fileInput.dispatchEvent(ev);
+            updateState();
         }
     });
 </script>

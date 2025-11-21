@@ -258,7 +258,7 @@ def _cleanse_docx_in_memory(data: bytes, spans, policy: str) -> bytes:
 
 @app.post("/web/submit")
 async def web_submit(
-    file: UploadFile = File(...),
+    files: List[UploadFile] = File(...),
     policy: str = Form("mask"),
     languages: str = Form("ru,en"),
     types: str | None = Form(None),
@@ -266,42 +266,79 @@ async def web_submit(
     if policy not in ("mask", "remove"):
         raise HTTPException(400, "policy must be 'mask' or 'remove'")
 
-    content = await file.read()
-    suffix = Path(file.filename).suffix.lower()
+    processed_items: List[dict[str, str]] = []
 
-    if suffix == ".pdf":
-        text_for_detection = _detect_text_from_pdf_bytes(content)
-    elif suffix == ".docx":
-        text_for_detection = _detect_text_from_docx_bytes(content)
-    else:
-        raise HTTPException(415, f"Unsupported type: {suffix}")
+    for file in files:
+        content = await file.read()
+        suffix = Path(file.filename).suffix.lower()
 
-    spans = detect_spans(
-        text_for_detection,
-        languages.split(","),
-        set(types.split(",")) if types else None,
-    )
+        if suffix == ".pdf":
+            text_for_detection = _detect_text_from_pdf_bytes(content)
+        elif suffix == ".docx":
+            text_for_detection = _detect_text_from_docx_bytes(content)
+        else:
+            raise HTTPException(415, f"Unsupported type: {suffix}")
 
-    log_candidates(text_for_detection, spans, source="web")
-
-    if suffix == ".pdf":
-        processed = _redact_pdf_in_memory(content, spans, policy)
-        media = "application/pdf"
-    else:
-        processed = _cleanse_docx_in_memory(content, spans, policy)
-        media = (
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        spans = detect_spans(
+            text_for_detection,
+            languages.split(","),
+            set(types.split(",")) if types else None,
         )
 
-    token = token_urlsafe(16)
-    download_name = f"{Path(file.filename).stem}_redacted{suffix}"
-    DOWNLOAD_CACHE[token] = {
-        "bytes": processed,
-        "media": media,
-        "filename": download_name,
-    }
+        log_candidates(text_for_detection, spans, source="web")
 
-    return RedirectResponse(url=f"/download/{token}", status_code=303)
+        if suffix == ".pdf":
+            processed = _redact_pdf_in_memory(content, spans, policy)
+            media = "application/pdf"
+        else:
+            processed = _cleanse_docx_in_memory(content, spans, policy)
+            media = (
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            )
+
+        token = token_urlsafe(16)
+        download_name = f"{Path(file.filename).stem}_redacted{suffix}"
+        DOWNLOAD_CACHE[token] = {
+            "bytes": processed,
+            "media": media,
+            "filename": download_name,
+        }
+        processed_items.append({"token": token, "filename": download_name})
+
+    if len(processed_items) == 1:
+        return RedirectResponse(url=f"/download/{processed_items[0]['token']}", status_code=303)
+
+    links = "".join(
+        f'<li><a class="btn" href="/api/download/{item["token"]}">&#128229; {item["filename"]}</a></li>'
+        for item in processed_items
+    )
+    html = f"""
+<!doctype html>
+<meta charset="utf-8"/>
+<title>Файлы готовы</title>
+<style>
+body{{font-family:ui-sans-serif,system-ui,Segoe UI,Roboto,Arial;background:#111;margin:0;color:#eee}}
+.header{{text-align:center;padding:60px 20px}}
+.header h1{{font-size:42px;margin:0 0 8px}}
+.header p{{font-size:18px;color:#bbb}}
+.container{{display:flex;justify-content:center}}
+.btn{{display:inline-flex;align-items:center;gap:12px;padding:14px 22px;font-size:18px;
+     background:#e02424;color:#fff;border:none;border-radius:14px;text-decoration:none;box-shadow:0 6px 20px rgba(224,36,36,.25)}}
+.btn:hover{{filter:brightness(1.05)}}
+.card{{background:#1b1b1f;border-radius:16px;box-shadow:0 6px 24px rgba(0,0,0,.24);padding:32px;max-width:760px;margin:24px auto;text-align:center}}
+ul{{list-style:none;padding:0;margin:18px 0;display:flex;flex-direction:column;gap:12px}}
+</style>
+<div class="header">
+  <h1>Файлы готовы</h1>
+  <p>Все загруженные документы обработаны. Скачайте результаты по ссылкам ниже.</p>
+</div>
+<div class="card">
+  <ul>
+    {links}
+  </ul>
+</div>
+"""
+    return HTMLResponse(html)
 
 
 @app.get("/download/{token}", response_class=HTMLResponse)
