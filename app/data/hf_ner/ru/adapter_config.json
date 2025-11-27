@@ -28,10 +28,10 @@
   "rank_pattern": {},
   "revision": null,
   "target_modules": [
-    "dense",
     "output.dense",
-    "key",
     "value",
+    "key",
+    "dense",
     "query"
   ],
   "target_parameters": null,

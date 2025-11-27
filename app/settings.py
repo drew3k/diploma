@@ -9,18 +9,21 @@ class Settings(BaseSettings):
 
     # --- HF NER ---
     hf_ner_enabled: bool = True
-    hf_ner_model_name: str = "DeepPavlov/rubert-base-cased"  # базовая модель
+    hf_ner_model_name: str = "DeepPavlov/rubert-base-cased"
     hf_ner_label_map: dict[str, str] = {
         "B-PER": "PERSON",
         "I-PER": "PERSON",
+        "PER": "PERSON",
         "B-LOC": "ADDRESS",
-        "I-LOC": "ADDRESS",  # опционально
+        "I-LOC": "ADDRESS",
+        "LOC": "ADDRESS",
         "B-ORG": "ORG",
-        "I-ORG": "ORG",  # опционально
+        "I-ORG": "ORG",
+        "ORG": "ORG",
     }
     hf_ner_threshold: float = 0.7
     hf_ner_max_length: int = 512
-    # если положить LoRA-адаптер в data/hf_ner/ru (и en), будем подхватывать автоматически:
+    # Путь к каталогу с LoRA-адаптерами; по умолчанию data/hf_ner/<lang>
     hf_ner_adapters_dir: Path | None = None  # None -> data/hf_ner
 
     class Config:

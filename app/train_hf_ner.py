@@ -82,6 +82,11 @@ def to_bio_encodings(
                 begin_done = True
                 labels[i] = label2id.get(tag, -100)
 
+        seq_len = len(e["input_ids"])
+        if len(labels) > seq_len:
+            labels = labels[:seq_len]
+        elif len(labels) < seq_len:
+            labels = labels + ([-100] * (seq_len - len(labels)))
         e["labels"] = labels
         encoded.append(e)
 
@@ -140,6 +145,8 @@ def main(
     out_path.mkdir(parents=True, exist_ok=True)
 
     tokenizer = AutoTokenizer.from_pretrained(base_model)
+    # Ensure tokenizer enforces model max length for truncation consistency
+    tokenizer.model_max_length = max_length
     base = AutoModelForTokenClassification.from_pretrained(
         base_model,
         num_labels=6,  # BIO: PER/ORG/LOC -> 6 меток

@@ -48,6 +48,9 @@ class HFNerRecognizer:
         self.device = 0 if torch.cuda.is_available() else -1
 
         self.tokenizer = AutoTokenizer.from_pretrained(self.cfg.model_name)
+        # Force a sane limit so truncation works consistently
+        if self.cfg.max_length:
+            self.tokenizer.model_max_length = self.cfg.max_length
 
         num_labels = len(HF_NER_BIO_LABELS)
         base_model = AutoModelForTokenClassification.from_pretrained(
@@ -88,6 +91,8 @@ class HFNerRecognizer:
                 pipe_kwargs["truncation"] = True
             if "max_length" in params:
                 pipe_kwargs["max_length"] = self.cfg.max_length
+            if "padding" in params:
+                pipe_kwargs["padding"] = "max_length"
             if "stride" in params:
                 pipe_kwargs["stride"] = 128
             if "return_all_scores" in params:
