@@ -13,7 +13,7 @@ from presidio_analyzer.predefined_recognizers import (
 )
 
 from .utils import Span, DEFAULT_REGEX, filter_labels
-from settings import settings
+from app.settings import settings
 
 try:
     from .hf_ner import HFNerRecognizer

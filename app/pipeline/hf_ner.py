@@ -13,7 +13,7 @@ try:
 except Exception:
     _HAS_PEFT = False
 
-from settings import settings
+from app.settings import settings
 from .utils import Span
 
 HF_NER_BIO_LABELS = ["B-PER", "I-PER", "B-ORG", "I-ORG", "B-LOC", "I-LOC"]

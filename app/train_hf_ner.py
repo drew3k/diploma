@@ -17,7 +17,7 @@ from transformers import (
 )
 from peft import LoraConfig, get_peft_model
 
-from settings import settings
+from app.settings import settings
 from metrics import classification_metrics
 from pipeline.utils import Span
 from pipeline.hf_ner import HFNerConfig, HFNerRecognizer
