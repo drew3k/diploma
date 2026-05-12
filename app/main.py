@@ -309,34 +309,433 @@ async def web_submit(
         return RedirectResponse(url=f"/download/{processed_items[0]['token']}", status_code=303)
 
     links = "".join(
-        f'<li><a class="btn" href="/api/download/{item["token"]}">&#128229; {item["filename"]}</a></li>'
-        for item in processed_items
+    f"""
+    <a class="file-link" href="/api/download/{item["token"]}">
+        <span class="file-icon">📄</span>
+        <span class="file-info">
+            <strong>{item["filename"]}</strong>
+            <small>Скачать обезличенный документ</small>
+        </span>
+        <span class="download-icon">⬇</span>
+    </a>
+    """
+    for item in processed_items
     )
     html = f"""
 <!doctype html>
-<meta charset="utf-8"/>
-<title>Файлы готовы</title>
-<style>
-body{{font-family:ui-sans-serif,system-ui,Segoe UI,Roboto,Arial;background:#111;margin:0;color:#eee}}
-.header{{text-align:center;padding:60px 20px}}
-.header h1{{font-size:42px;margin:0 0 8px}}
-.header p{{font-size:18px;color:#bbb}}
-.container{{display:flex;justify-content:center}}
-.btn{{display:inline-flex;align-items:center;gap:12px;padding:14px 22px;font-size:18px;
-     background:#e02424;color:#fff;border:none;border-radius:14px;text-decoration:none;box-shadow:0 6px 20px rgba(224,36,36,.25)}}
-.btn:hover{{filter:brightness(1.05)}}
-.card{{background:#1b1b1f;border-radius:16px;box-shadow:0 6px 24px rgba(0,0,0,.24);padding:32px;max-width:760px;margin:24px auto;text-align:center}}
-ul{{list-style:none;padding:0;margin:18px 0;display:flex;flex-direction:column;gap:12px}}
-</style>
-<div class="header">
-  <h1>Файлы готовы</h1>
-  <p>Все загруженные документы обработаны. Скачайте результаты по ссылкам ниже.</p>
-</div>
-<div class="card">
-  <ul>
-    {links}
-  </ul>
-</div>
+<html lang="ru">
+<head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <title>Файлы готовы — PD Redactor</title>
+
+    <style>
+        :root {{
+            --bg-1: #080b18;
+            --bg-2: #101936;
+            --text: #f8fafc;
+            --muted: #a9b4c7;
+            --blue: #6ee7ff;
+            --violet: #8b5cf6;
+            --pink: #ec4899;
+            --green: #34d399;
+            --card-border: rgba(255, 255, 255, 0.18);
+            --shadow: 0 30px 80px rgba(0, 0, 0, 0.35);
+        }}
+
+        * {{
+            box-sizing: border-box;
+        }}
+
+        body {{
+            margin: 0;
+            min-height: 100vh;
+            color: var(--text);
+            font-family:
+                Inter,
+                ui-sans-serif,
+                system-ui,
+                -apple-system,
+                BlinkMacSystemFont,
+                "Segoe UI",
+                Roboto,
+                Arial,
+                sans-serif;
+            background:
+                radial-gradient(circle at 15% 15%, rgba(110, 231, 255, 0.22), transparent 28%),
+                radial-gradient(circle at 80% 5%, rgba(139, 92, 246, 0.28), transparent 30%),
+                radial-gradient(circle at 80% 85%, rgba(236, 72, 153, 0.18), transparent 30%),
+                linear-gradient(135deg, var(--bg-1), var(--bg-2));
+            overflow-x: hidden;
+        }}
+
+        body::before {{
+            content: "";
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            background-image:
+                linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+            background-size: 42px 42px;
+            mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.9), transparent);
+        }}
+
+        .orb {{
+            position: fixed;
+            border-radius: 999px;
+            filter: blur(12px);
+            opacity: 0.6;
+            pointer-events: none;
+            animation: float 8s ease-in-out infinite;
+        }}
+
+        .orb.one {{
+            width: 210px;
+            height: 210px;
+            left: -60px;
+            top: 190px;
+            background: rgba(110, 231, 255, 0.28);
+        }}
+
+        .orb.two {{
+            width: 260px;
+            height: 260px;
+            right: -90px;
+            top: 130px;
+            background: rgba(139, 92, 246, 0.32);
+            animation-delay: -2s;
+        }}
+
+        .orb.three {{
+            width: 180px;
+            height: 180px;
+            right: 18%;
+            bottom: -70px;
+            background: rgba(236, 72, 153, 0.24);
+            animation-delay: -4s;
+        }}
+
+        @keyframes float {{
+            0%, 100% {{
+                transform: translate3d(0, 0, 0);
+            }}
+
+            50% {{
+                transform: translate3d(0, -24px, 0);
+            }}
+        }}
+
+        .page {{
+            position: relative;
+            z-index: 1;
+            width: min(1180px, calc(100% - 32px));
+            margin: 0 auto;
+            padding: 34px 0 56px;
+        }}
+
+        .topbar {{
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 18px;
+            margin-bottom: 58px;
+        }}
+
+        .brand {{
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-weight: 800;
+            letter-spacing: 0.2px;
+        }}
+
+        .brand-icon {{
+            width: 44px;
+            height: 44px;
+            display: grid;
+            place-items: center;
+            border-radius: 16px;
+            background:
+                linear-gradient(135deg, rgba(110, 231, 255, 0.95), rgba(139, 92, 246, 0.95));
+            box-shadow: 0 14px 38px rgba(110, 231, 255, 0.2);
+        }}
+
+        .status-pill {{
+            display: inline-flex;
+            align-items: center;
+            gap: 9px;
+            padding: 10px 14px;
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            border-radius: 999px;
+            color: rgba(255, 255, 255, 0.78);
+            background: rgba(255, 255, 255, 0.07);
+            backdrop-filter: blur(18px);
+            font-size: 14px;
+        }}
+
+        .pulse {{
+            width: 9px;
+            height: 9px;
+            border-radius: 50%;
+            background: var(--green);
+            box-shadow: 0 0 0 6px rgba(52, 211, 153, 0.14);
+        }}
+
+        .result-wrap {{
+            display: grid;
+            place-items: center;
+            min-height: calc(100vh - 190px);
+        }}
+
+        .panel {{
+            width: min(820px, 100%);
+            position: relative;
+            padding: 1px;
+            border-radius: 34px;
+            background:
+                linear-gradient(145deg, rgba(110, 231, 255, 0.55), rgba(139, 92, 246, 0.2), rgba(236, 72, 153, 0.45));
+            box-shadow: var(--shadow);
+        }}
+
+        .panel-inner {{
+            position: relative;
+            padding: 42px;
+            border-radius: 33px;
+            border: 1px solid var(--card-border);
+            background:
+                linear-gradient(180deg, rgba(255, 255, 255, 0.13), rgba(255, 255, 255, 0.07));
+            backdrop-filter: blur(24px);
+            overflow: hidden;
+            text-align: center;
+        }}
+
+        .panel-inner::before {{
+            content: "";
+            position: absolute;
+            inset: -100px -120px auto auto;
+            width: 280px;
+            height: 280px;
+            background: radial-gradient(circle, rgba(110, 231, 255, 0.18), transparent 68%);
+            pointer-events: none;
+        }}
+
+        .success-icon {{
+            position: relative;
+            width: 92px;
+            height: 92px;
+            display: grid;
+            place-items: center;
+            margin: 0 auto 24px;
+            border-radius: 30px;
+            background:
+                linear-gradient(135deg, rgba(52, 211, 153, 0.95), rgba(110, 231, 255, 0.95));
+            box-shadow: 0 22px 55px rgba(52, 211, 153, 0.2);
+        }}
+
+        h1 {{
+            position: relative;
+            margin: 0;
+            font-size: clamp(36px, 4.4vw, 54px);
+            line-height: 1.05;
+            letter-spacing: -1.6px;
+        }}
+
+        .gradient-text {{
+            color: #67e8f9;
+            text-shadow: 0 0 22px rgba(103, 232, 249, 0.45);
+        }}
+
+        .subtitle {{
+            position: relative;
+            margin: 18px auto 0;
+            max-width: 620px;
+            color: var(--muted);
+            font-size: 17px;
+            line-height: 1.65;
+        }}
+
+        .files-list {{
+            position: relative;
+            display: grid;
+            gap: 12px;
+            margin: 30px auto 0;
+            width: min(560px, 100%);
+        }}
+
+        .file-link {{
+            display: grid;
+            grid-template-columns: 44px 1fr 34px;
+            align-items: center;
+            gap: 14px;
+            min-height: 72px;
+            padding: 13px 15px;
+            border-radius: 20px;
+            color: var(--text);
+            text-decoration: none;
+            text-align: left;
+            background:
+                linear-gradient(135deg, rgba(110, 231, 255, 0.09), rgba(236, 72, 153, 0.08)),
+                rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            transition: 0.22s ease;
+        }}
+
+        .file-link:hover {{
+            transform: translateY(-2px);
+            border-color: rgba(110, 231, 255, 0.75);
+            box-shadow:
+                0 18px 46px rgba(139, 92, 246, 0.22),
+                0 0 0 4px rgba(110, 231, 255, 0.08);
+        }}
+
+        .file-icon {{
+            width: 44px;
+            height: 44px;
+            display: grid;
+            place-items: center;
+            border-radius: 16px;
+            background:
+                linear-gradient(135deg, rgba(110, 231, 255, 0.22), rgba(139, 92, 246, 0.22));
+            border: 1px solid rgba(255, 255, 255, 0.12);
+        }}
+
+        .file-info {{
+            min-width: 0;
+            display: grid;
+            gap: 4px;
+        }}
+
+        .file-info strong {{
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            font-size: 15px;
+        }}
+
+        .file-info small {{
+            color: var(--muted);
+            font-size: 13px;
+        }}
+
+        .download-icon {{
+            width: 34px;
+            height: 34px;
+            display: grid;
+            place-items: center;
+            border-radius: 13px;
+            color: #06101f;
+            background: linear-gradient(135deg, #67e8f9, #a78bfa 55%, #f0abfc);
+            font-weight: 900;
+        }}
+
+        .actions {{
+            position: relative;
+            margin-top: 30px;
+        }}
+
+        .btn-secondary {{
+            min-height: 54px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0 22px;
+            border-radius: 18px;
+            border: 1px solid rgba(255, 255, 255, 0.16);
+            color: var(--text);
+            background: rgba(255, 255, 255, 0.08);
+            text-decoration: none;
+            font-weight: 800;
+            transition: 0.2s ease;
+        }}
+
+        .btn-secondary:hover {{
+            transform: translateY(-2px);
+            background: rgba(255, 255, 255, 0.13);
+        }}
+
+        @media (max-width: 720px) {{
+            .topbar {{
+                align-items: flex-start;
+                flex-direction: column;
+                margin-bottom: 36px;
+            }}
+
+            .panel-inner {{
+                padding: 28px 20px;
+            }}
+
+            .file-link {{
+                grid-template-columns: 40px 1fr;
+            }}
+
+            .download-icon {{
+                display: none;
+            }}
+
+            .btn-secondary {{
+                width: 100%;
+            }}
+        }}
+    </style>
+</head>
+
+<body>
+    <div class="orb one"></div>
+    <div class="orb two"></div>
+    <div class="orb three"></div>
+
+    <main class="page">
+        <header class="topbar">
+            <div class="brand">
+                <div class="brand-icon">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                        <path d="M12 3L20 7V12C20 17 16.5 20.5 12 21C7.5 20.5 4 17 4 12V7L12 3Z" stroke="white" stroke-width="2" stroke-linejoin="round"/>
+                        <path d="M9 12L11 14L15.5 9.5" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                </div>
+                <div>
+                    <div>PD Redactor</div>
+                    <small style="color: var(--muted); font-weight: 600;">Secure document anonymization</small>
+                </div>
+            </div>
+
+            <div class="status-pill">
+                <span class="pulse"></span>
+                Обработка завершена
+            </div>
+        </header>
+
+        <section class="result-wrap">
+            <div class="panel">
+                <div class="panel-inner">
+                    <div class="success-icon">
+                        <svg width="44" height="44" viewBox="0 0 24 24" fill="none">
+                            <path d="M20 6L9 17L4 12" stroke="white" stroke-width="2.7" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                    </div>
+
+                    <h1>
+                        Файлы <span class="gradient-text">готовы</span>
+                    </h1>
+
+                    <p class="subtitle">
+                        Все загруженные документы успешно обработаны. Скачайте обезличенные версии файлов по ссылкам ниже.
+                    </p>
+
+                    <div class="files-list">
+                        {links}
+                    </div>
+
+                    <div class="actions">
+                        <a class="btn-secondary" href="/">Обработать ещё документы</a>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+</body>
+</html>
 """
     return HTMLResponse(html)
 
@@ -345,40 +744,511 @@ ul{{list-style:none;padding:0;margin:18px 0;display:flex;flex-direction:column;g
 def download_page(token: str):
     item = DOWNLOAD_CACHE.get(token)
     if not item:
-        return HTMLResponse(
-            "<h2 style='font-family:Segoe UI,Roboto,Arial'>Ссылка устарела или не найдена.</h2>",
-            status_code=404,
-        )
+        html = """
+<!doctype html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <title>Ссылка не найдена</title>
+    <style>
+        body {
+            margin: 0;
+            min-height: 100vh;
+            display: grid;
+            place-items: center;
+            color: #f8fafc;
+            font-family: Inter, ui-sans-serif, system-ui, "Segoe UI", Roboto, Arial;
+            background:
+                radial-gradient(circle at 15% 15%, rgba(110, 231, 255, 0.22), transparent 28%),
+                radial-gradient(circle at 80% 5%, rgba(139, 92, 246, 0.28), transparent 30%),
+                linear-gradient(135deg, #080b18, #101936);
+        }
+        .card {
+            width: min(620px, calc(100% - 32px));
+            padding: 36px;
+            border-radius: 30px;
+            text-align: center;
+            background: rgba(255,255,255,.1);
+            border: 1px solid rgba(255,255,255,.18);
+            backdrop-filter: blur(24px);
+            box-shadow: 0 30px 80px rgba(0,0,0,.35);
+        }
+        h1 { margin: 0 0 10px; font-size: 36px; }
+        p { margin: 0 0 26px; color: #a9b4c7; line-height: 1.6; }
+        a {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 52px;
+            padding: 0 22px;
+            border-radius: 17px;
+            color: #06101f;
+            font-weight: 900;
+            text-decoration: none;
+            background: linear-gradient(135deg, #67e8f9, #a78bfa 55%, #f0abfc);
+        }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>Ссылка устарела</h1>
+        <p>Файл не найден в кэше сервера. Загрузите документ повторно и запустите обработку ещё раз.</p>
+        <a href="/">Вернуться на главную</a>
+    </div>
+</body>
+</html>
+"""
+        return HTMLResponse(html, status_code=404)
 
     filename = item["filename"]
+
     html = f"""
 <!doctype html>
-<meta charset="utf-8"/>
-<title>Скачать файл</title>
-<style>
-body{{font-family:ui-sans-serif,system-ui,Segoe UI,Roboto,Arial;background:#111;margin:0;color:#eee}}
-.header{{text-align:center;padding:60px 20px}}
-.header h1{{font-size:42px;margin:0 0 8px}}
-.header p{{font-size:18px;color:#bbb}}
-.container{{display:flex;justify-content:center}}
-.btn{{display:inline-flex;align-items:center;gap:12px;padding:16px 28px;font-size:20px;
-     background:#e02424;color:#fff;border:none;border-radius:14px;text-decoration:none;box-shadow:0 6px 20px rgba(224,36,36,.25)}}
-.btn:hover{{filter:brightness(1.05)}}
-.card{{background:#1b1b1f;border-radius:16px;box-shadow:0 6px 24px rgba(0,0,0,.24);padding:32px;max-width:680px;margin:24px auto;text-align:center}}
-.file{{font-weight:600;color:#fff}}
-</style>
-<div class="header">
-  <h1>Файл готов</h1>
-  <p>Результат обработки: <span class="file">{filename}</span></p>
-</div>
-<div class="container">
-  <a class="btn" href="/api/download/{token}">
-    &#128229; Скачать файл
-  </a>
-</div>
-<div class="card">
-  <p>Нажми «Скачать файл». Браузер откроет диалог выбора папки для сохранения.</p>
-</div>
+<html lang="ru">
+<head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <title>Файл готов — PD Redactor</title>
+
+    <style>
+        :root {{
+            --bg-1: #080b18;
+            --bg-2: #101936;
+            --text: #f8fafc;
+            --muted: #a9b4c7;
+            --blue: #6ee7ff;
+            --violet: #8b5cf6;
+            --pink: #ec4899;
+            --green: #34d399;
+            --card-border: rgba(255, 255, 255, 0.18);
+            --shadow: 0 30px 80px rgba(0, 0, 0, 0.35);
+        }}
+
+        * {{
+            box-sizing: border-box;
+        }}
+
+        body {{
+            margin: 0;
+            min-height: 100vh;
+            color: var(--text);
+            font-family:
+                Inter,
+                ui-sans-serif,
+                system-ui,
+                -apple-system,
+                BlinkMacSystemFont,
+                "Segoe UI",
+                Roboto,
+                Arial,
+                sans-serif;
+            background:
+                radial-gradient(circle at 15% 15%, rgba(110, 231, 255, 0.22), transparent 28%),
+                radial-gradient(circle at 80% 5%, rgba(139, 92, 246, 0.28), transparent 30%),
+                radial-gradient(circle at 80% 85%, rgba(236, 72, 153, 0.18), transparent 30%),
+                linear-gradient(135deg, var(--bg-1), var(--bg-2));
+            overflow-x: hidden;
+        }}
+
+        body::before {{
+            content: "";
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            background-image:
+                linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+            background-size: 42px 42px;
+            mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.9), transparent);
+        }}
+
+        .orb {{
+            position: fixed;
+            border-radius: 999px;
+            filter: blur(12px);
+            opacity: 0.6;
+            pointer-events: none;
+            animation: float 8s ease-in-out infinite;
+        }}
+
+        .orb.one {{
+            width: 210px;
+            height: 210px;
+            left: -60px;
+            top: 190px;
+            background: rgba(110, 231, 255, 0.28);
+        }}
+
+        .orb.two {{
+            width: 260px;
+            height: 260px;
+            right: -90px;
+            top: 130px;
+            background: rgba(139, 92, 246, 0.32);
+            animation-delay: -2s;
+        }}
+
+        .orb.three {{
+            width: 180px;
+            height: 180px;
+            right: 18%;
+            bottom: -70px;
+            background: rgba(236, 72, 153, 0.24);
+            animation-delay: -4s;
+        }}
+
+        @keyframes float {{
+            0%, 100% {{
+                transform: translate3d(0, 0, 0);
+            }}
+            50% {{
+                transform: translate3d(0, -24px, 0);
+            }}
+        }}
+
+        .page {{
+            position: relative;
+            z-index: 1;
+            width: min(1180px, calc(100% - 32px));
+            margin: 0 auto;
+            padding: 34px 0 56px;
+        }}
+
+        .topbar {{
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 18px;
+            margin-bottom: 70px;
+        }}
+
+        .brand {{
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-weight: 800;
+            letter-spacing: 0.2px;
+        }}
+
+        .brand-icon {{
+            width: 44px;
+            height: 44px;
+            display: grid;
+            place-items: center;
+            border-radius: 16px;
+            background:
+                linear-gradient(135deg, rgba(110, 231, 255, 0.95), rgba(139, 92, 246, 0.95));
+            box-shadow: 0 14px 38px rgba(110, 231, 255, 0.2);
+        }}
+
+        .status-pill {{
+            display: inline-flex;
+            align-items: center;
+            gap: 9px;
+            padding: 10px 14px;
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            border-radius: 999px;
+            color: rgba(255, 255, 255, 0.78);
+            background: rgba(255, 255, 255, 0.07);
+            backdrop-filter: blur(18px);
+            font-size: 14px;
+        }}
+
+        .pulse {{
+            width: 9px;
+            height: 9px;
+            border-radius: 50%;
+            background: var(--green);
+            box-shadow: 0 0 0 6px rgba(52, 211, 153, 0.14);
+        }}
+
+        .result-wrap {{
+            display: grid;
+            place-items: center;
+            min-height: calc(100vh - 210px);
+        }}
+
+        .panel {{
+            width: min(760px, 100%);
+            position: relative;
+            padding: 1px;
+            border-radius: 34px;
+            background:
+                linear-gradient(145deg, rgba(110, 231, 255, 0.55), rgba(139, 92, 246, 0.2), rgba(236, 72, 153, 0.45));
+            box-shadow: var(--shadow);
+        }}
+
+        .panel-inner {{
+            position: relative;
+            padding: 42px;
+            border-radius: 33px;
+            border: 1px solid var(--card-border);
+            background:
+                linear-gradient(180deg, rgba(255, 255, 255, 0.13), rgba(255, 255, 255, 0.07));
+            backdrop-filter: blur(24px);
+            overflow: hidden;
+            text-align: center;
+        }}
+
+        .panel-inner::before {{
+            content: "";
+            position: absolute;
+            inset: -100px -120px auto auto;
+            width: 280px;
+            height: 280px;
+            background: radial-gradient(circle, rgba(110, 231, 255, 0.18), transparent 68%);
+            pointer-events: none;
+        }}
+
+        .success-icon {{
+            position: relative;
+            width: 92px;
+            height: 92px;
+            display: grid;
+            place-items: center;
+            margin: 0 auto 24px;
+            border-radius: 30px;
+            background:
+                linear-gradient(135deg, rgba(52, 211, 153, 0.95), rgba(110, 231, 255, 0.95));
+            box-shadow: 0 22px 55px rgba(52, 211, 153, 0.2);
+        }}
+
+        h1 {{
+            position: relative;
+            margin: 0;
+            font-size: clamp(38px, 5vw, 58px);
+            line-height: 1;
+            letter-spacing: -2.2px;
+        }}
+
+        .gradient-text {{
+            color: #67e8f9;
+            text-shadow: 0 0 22px rgba(103, 232, 249, 0.45);
+        }}
+
+        .subtitle {{
+            position: relative;
+            margin: 18px auto 0;
+            max-width: 560px;
+            color: var(--muted);
+            font-size: 17px;
+            line-height: 1.65;
+        }}
+
+        .file-card {{
+            position: relative;
+            margin: 26px auto 0;
+            padding: 16px 18px;
+            border-radius: 22px;
+            background: rgba(0, 0, 0, 0.18);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+            color: #eef2ff;
+            word-break: break-word;
+        }}
+
+        .file-name {{
+            font-weight: 800;
+        }}
+
+        .actions {{
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 14px;
+            margin-top: 30px;
+            flex-wrap: wrap;
+        }}
+
+        .btn {{
+            min-height: 56px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            padding: 0 24px;
+            border: none;
+            border-radius: 18px;
+            color: #06101f;
+            background: linear-gradient(135deg, #67e8f9, #a78bfa 55%, #f0abfc);
+            box-shadow:
+                0 18px 46px rgba(139, 92, 246, 0.26),
+                inset 0 1px 0 rgba(255, 255, 255, 0.55);
+            font-size: 16px;
+            font-weight: 900;
+            cursor: pointer;
+            text-decoration: none;
+            transition: 0.22s ease;
+            white-space: nowrap;
+        }}
+
+        .btn:hover {{
+            transform: translateY(-2px);
+            filter: saturate(1.08);
+            box-shadow:
+                0 24px 60px rgba(139, 92, 246, 0.36),
+                inset 0 1px 0 rgba(255, 255, 255, 0.62);
+        }}
+
+        .btn-secondary {{
+            min-height: 56px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0 22px;
+            border-radius: 18px;
+            border: 1px solid rgba(255, 255, 255, 0.16);
+            color: var(--text);
+            background: rgba(255, 255, 255, 0.08);
+            text-decoration: none;
+            font-weight: 800;
+            transition: 0.2s ease;
+        }}
+
+        .btn-secondary:hover {{
+            transform: translateY(-2px);
+            background: rgba(255, 255, 255, 0.13);
+        }}
+
+        .steps {{
+            position: relative;
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+            margin-top: 30px;
+        }}
+
+        .step {{
+            padding: 14px;
+            border-radius: 18px;
+            background: rgba(255, 255, 255, 0.065);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            text-align: left;
+        }}
+
+        .step strong {{
+            display: block;
+            margin-bottom: 4px;
+            font-size: 14px;
+        }}
+
+        .step span {{
+            color: var(--muted);
+            font-size: 13px;
+            line-height: 1.45;
+        }}
+
+        @media (max-width: 720px) {{
+            .topbar {{
+                align-items: flex-start;
+                flex-direction: column;
+                margin-bottom: 36px;
+            }}
+
+            .panel-inner {{
+                padding: 28px 20px;
+            }}
+
+            .steps {{
+                grid-template-columns: 1fr;
+            }}
+
+            .btn,
+            .btn-secondary {{
+                width: 100%;
+            }}
+        }}
+    </style>
+</head>
+
+<body>
+    <div class="orb one"></div>
+    <div class="orb two"></div>
+    <div class="orb three"></div>
+
+    <main class="page">
+        <header class="topbar">
+            <div class="brand">
+                <div class="brand-icon">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                        <path d="M12 3L20 7V12C20 17 16.5 20.5 12 21C7.5 20.5 4 17 4 12V7L12 3Z" stroke="white" stroke-width="2" stroke-linejoin="round"/>
+                        <path d="M9 12L11 14L15.5 9.5" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                </div>
+                <div>
+                    <div>PD Redactor</div>
+                    <small style="color: var(--muted); font-weight: 600;">Secure document anonymization</small>
+                </div>
+            </div>
+
+            <div class="status-pill">
+                <span class="pulse"></span>
+                Обработка завершена
+            </div>
+        </header>
+
+        <section class="result-wrap">
+            <div class="panel">
+                <div class="panel-inner">
+                    <div class="success-icon">
+                        <svg width="44" height="44" viewBox="0 0 24 24" fill="none">
+                            <path d="M20 6L9 17L4 12" stroke="white" stroke-width="2.7" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                    </div>
+
+                    <h1>
+                        Файл
+                        <span class="gradient-text">готов</span>
+                    </h1>
+
+                    <p class="subtitle">
+                        Обезличенная версия документа успешно сформирована. Теперь файл можно скачать
+                        и использовать для безопасной передачи или хранения.
+                    </p>
+
+                    <div class="file-card">
+                        <span>📄</span>
+                        <span class="file-name">{filename}</span>
+                    </div>
+
+                    <div class="actions">
+                        <a class="btn" href="/api/download/{token}">
+                            <span>⬇</span>
+                            Скачать файл
+                        </a>
+
+                        <a class="btn-secondary" href="/">
+                            Обработать ещё
+                        </a>
+                    </div>
+
+                    <div class="steps">
+                        <div class="step">
+                            <strong>1. Detection</strong>
+                            <span>Персональные данные были обнаружены системой.</span>
+                        </div>
+
+                        <div class="step">
+                            <strong>2. Redaction</strong>
+                            <span>Фрагменты были скрыты согласно выбранной политике.</span>
+                        </div>
+
+                        <div class="step">
+                            <strong>3. Delivery</strong>
+                            <span>Готовый документ доступен для скачивания.</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+</body>
+</html>
 """
     return HTMLResponse(html)
 
